@@ -1,0 +1,6 @@
+title,category,amount,day_of_month
+Factory Staff Payroll,PAYROLL,200000.00,7
+Factory Shed Lease,RENT,65000.00,5
+Machinery Term Loan EMI,LOAN_EMI,50000.00,10
+Commercial Electricity,UTILITIES,35000.00,15
+GST Monthly Return,STATUTORY_GST_TDS,80000.00,20

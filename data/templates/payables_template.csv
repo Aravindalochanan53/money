@@ -1,0 +1,4 @@
+bill_number,supplier_name,bill_date,due_date,category,amount,paid_amount,scheduled_date
+BILL-501,National Steel Alloy,2026-09-05,2026-10-05,RAW_MATERIAL,180000.00,0.00,2026-10-05
+BILL-502,Industrial Gas Corp,2026-09-10,2026-10-10,UTILITIES,45000.00,0.00,2026-10-10
+BILL-503,Precision Bearings Ltd,2026-09-18,2026-10-18,SERVICES,70000.00,0.00,2026-10-18

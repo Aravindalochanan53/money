@@ -1,0 +1,4 @@
+bill_number,supplier_name,bill_date,due_date,category,amount,paid_amount,scheduled_date
+BILL-301,Precision Steel Tubes,2026-09-04,2026-10-04,RAW_MATERIAL,220000.00,0.00,2026-10-04
+BILL-302,Om Carbide Tools,2026-09-08,2026-10-08,RAW_MATERIAL,90000.00,0.00,2026-10-08
+BILL-303,Apex Heat Treaters,2026-09-18,2026-10-18,SERVICES,60000.00,0.00,2026-10-18

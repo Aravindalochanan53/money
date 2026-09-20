@@ -1,0 +1,5 @@
+title,category,amount,day_of_month
+Factory Staff Payroll,PAYROLL,180000.00,7
+Factory Shed Rent,RENT,50000.00,5
+CNC Machine Loan EMI,LOAN_EMI,45000.00,10
+GST Statutory Settlement,STATUTORY_GST_TDS,75000.00,20

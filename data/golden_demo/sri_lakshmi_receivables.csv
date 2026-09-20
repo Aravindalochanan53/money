@@ -1,0 +1,5 @@
+invoice_number,customer_name,invoice_date,due_date,original_amount,paid_amount,expected_date
+INV-801,Sundaram Motors,2026-08-15,2026-09-15,180000.00,0.00,2026-10-05
+INV-802,Ashok Auto Corp,2026-09-01,2026-10-01,250000.00,0.00,2026-10-11
+INV-803,Bharat Heavy Gear,2026-09-10,2026-10-10,120000.00,0.00,2026-10-15
+INV-804,Sundaram Motors,2026-09-20,2026-10-20,300000.00,0.00,2026-11-09

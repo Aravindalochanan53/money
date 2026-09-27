@@ -80,6 +80,18 @@ class ScenarioEngine:
                 if str(item.get("supplier_id")) == str(supplier_id) or item.get("supplier_name") == supplier_name:
                     item["scheduled_date"] = item["scheduled_date"] + timedelta(days=postpone_days)
 
+        elif scenario_type == "CUSTOM":
+            scenario_description = params.get("description", "Custom scenario simulation.")
+            if "delay_days" in params:
+                delay_days = int(params["delay_days"])
+                for item in modified_inflows:
+                    item["expected_date"] = item["expected_date"] + timedelta(days=delay_days)
+            if "increase_percentage" in params:
+                pct = Decimal(str(params["increase_percentage"]))
+                multiplier = Decimal("1.00") + (pct / Decimal("100.00"))
+                for item in modified_outflows:
+                    item["amount"] = round(item["amount"] * multiplier, 2)
+
         else:
             raise ValueError(f"Unsupported scenario_type: {scenario_type}")
 

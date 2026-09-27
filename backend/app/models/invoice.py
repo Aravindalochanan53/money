@@ -10,7 +10,7 @@ class ReceivableInvoice(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     business_id = Column(String(36), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False)
-    customer_id = Column(String(36), ForeignKey("customers.id", ondelete="RESTRICT"), nullable=False)
+    customer_id = Column(String(36), ForeignKey("customers.id", ondelete="NO ACTION"), nullable=False)
     invoice_number = Column(String(100), nullable=False)
     invoice_date = Column(Date, nullable=False)
     due_date = Column(Date, nullable=False)
@@ -34,3 +34,5 @@ class ReceivableInvoice(Base):
 
     business = relationship("Business", back_populates="receivables")
     customer = relationship("Customer", back_populates="invoices")
+    payments = relationship("PaymentRecord", back_populates="invoice")
+

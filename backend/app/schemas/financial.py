@@ -74,6 +74,8 @@ class BillOut(BaseModel):
     outstanding_balance: float
     payment_status: str
     scheduled_payment_date: date
+    days_past_due: Optional[int] = 0
+    is_overdue: Optional[bool] = False
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -92,6 +94,43 @@ class ExpenseOut(BaseModel):
     amount: float
     recurrence_day_of_month: int
     is_active: bool
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+class PaymentCreate(BaseModel):
+    amount: float = Field(..., gt=0)
+    payment_date: Optional[date] = None
+    payment_method: Optional[str] = "BANK_TRANSFER"
+    reference_number: Optional[str] = None
+    notes: Optional[str] = None
+
+class PaymentOut(BaseModel):
+    id: str
+    business_id: str
+    payment_type: str
+    payment_date: date
+    amount: float
+    payment_method: str
+    reference_number: Optional[str] = None
+    invoice_id: Optional[str] = None
+    bill_id: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+class CashTransactionOut(BaseModel):
+    id: str
+    business_id: str
+    transaction_date: date
+    direction: str
+    amount: float
+    category: str
+    source_entity_type: str
+    source_entity_id: Optional[str] = None
+    payment_id: Optional[str] = None
+    description: str
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

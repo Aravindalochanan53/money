@@ -9,7 +9,7 @@ class HistoricalPayment(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     business_id = Column(String(36), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False)
-    customer_id = Column(String(36), ForeignKey("customers.id", ondelete="CASCADE"), nullable=False)
+    customer_id = Column(String(36), ForeignKey("customers.id", ondelete="NO ACTION"), nullable=False)
     invoice_number = Column(String(100), nullable=False)
     due_date = Column(Date, nullable=False)
     settled_date = Column(Date, nullable=False)

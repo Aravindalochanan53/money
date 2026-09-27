@@ -1,15 +1,19 @@
 import { useState, useEffect } from 'react';
+import { AuthProvider, useAuth } from './lib/auth/AuthContext';
+import { LoginPage } from './pages/LoginPage';
 import { Shell } from './components/Shell';
 import { DesignSystemPage } from './pages/DesignSystemPage';
 import { OverviewPage } from './features/overview/OverviewPage';
 import { TimelinePage } from './features/timeline/TimelinePage';
+import { PayablesPage } from './features/payables/PayablesPage';
 import { RiskPage } from './features/risk/RiskPage';
 import { ScenariosPage } from './features/scenarios/ScenariosPage';
 import { ActionsPage } from './features/actions/ActionsPage';
 import { ImportPage } from './features/import/ImportPage';
 import { AffordabilityDrawer } from './features/affordability/AffordabilityDrawer';
 
-export function App() {
+function AppContent() {
+  const { isAuthenticated, isLoading, business, user, logout } = useAuth();
   const [currentPath, setCurrentPath] = useState('/overview');
   const [isAffordOpen, setIsAffordOpen] = useState(false);
 
@@ -44,12 +48,34 @@ export function App() {
     setCurrentPath(path);
   };
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-paper flex items-center justify-center font-sans">
+        <div className="text-center space-y-3">
+          <div className="w-10 h-10 rounded bg-cash text-surface font-bold text-lg flex items-center justify-center mx-auto shadow-sm animate-pulse">
+            FC
+          </div>
+          <p className="text-xs text-ink-muted">Connecting to FlowCred Decision Engine...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Protected route guard: show LoginPage if unauthenticated
+  if (!isAuthenticated) {
+    return <LoginPage />;
+  }
+
   return (
     <Shell
       activePath={currentPath}
       onNavigate={navigate}
       onOpenAffordDrawer={() => setIsAffordOpen(true)}
-      actionBadgeCount={3}
+      businessName={business?.name}
+      asOfDate={business?.as_of_date || new Date().toISOString().split('T')[0]}
+      userEmail={user?.email}
+      onLogout={logout}
+      actionBadgeCount={0}
     >
       {currentPath === '/overview' && (
         <OverviewPage
@@ -58,6 +84,7 @@ export function App() {
         />
       )}
       {currentPath === '/timeline' && <TimelinePage />}
+      {currentPath === '/payables' && <PayablesPage />}
       {currentPath === '/risk' && <RiskPage />}
       {currentPath === '/scenarios' && <ScenariosPage />}
       {currentPath === '/actions' && <ActionsPage />}
@@ -68,6 +95,7 @@ export function App() {
       {![
         '/overview',
         '/timeline',
+        '/payables',
         '/risk',
         '/scenarios',
         '/actions',
@@ -94,6 +122,14 @@ export function App() {
         onClose={() => setIsAffordOpen(false)}
       />
     </Shell>
+  );
+}
+
+export function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }
 

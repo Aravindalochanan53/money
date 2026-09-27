@@ -12,10 +12,14 @@ from app.models.supplier import Supplier
 from app.models.invoice import ReceivableInvoice
 from app.models.bill import PayableBill
 from app.models.expense import RecurringExpense
+from app.models.payment import PaymentRecord
+from app.models.cash_transaction import CashTransaction
 from app.schemas.financial import (
     InvoiceOut, InvoiceCreate, BillOut, BillCreate,
-    ExpenseOut, ExpenseCreate, CustomerOut, SupplierOut
+    ExpenseOut, ExpenseCreate, CustomerOut, SupplierOut,
+    PaymentCreate, PaymentOut, CashTransactionOut
 )
+from app.services.payment_service import PaymentService
 
 router = APIRouter(prefix="/financial", tags=["Financial Entities"])
 
@@ -53,6 +57,21 @@ def get_invoices(
         ))
     return results
 
+@router.post("/invoices/{invoice_id}/pay", response_model=PaymentOut)
+def pay_invoice(
+    invoice_id: str,
+    payment_data: PaymentCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    payment, _ = PaymentService.record_invoice_payment(
+        db=db,
+        business_id=current_user.business_id,
+        invoice_id=invoice_id,
+        data=payment_data
+    )
+    return payment
+
 # --- Bills ---
 @router.get("/bills", response_model=List[BillOut])
 def get_bills(
@@ -65,8 +84,10 @@ def get_bills(
         query = query.filter(PayableBill.payment_status == status_filter.upper())
     bills = query.order_by(PayableBill.due_date.asc()).all()
 
+    today = date.today()
     results = []
     for b in bills:
+        dpd = max(0, (today - b.due_date).days)
         results.append(BillOut(
             id=b.id,
             supplier_id=b.supplier_id,
@@ -80,9 +101,51 @@ def get_bills(
             outstanding_balance=float(b.outstanding_balance),
             payment_status=b.payment_status,
             scheduled_payment_date=b.scheduled_payment_date,
+            days_past_due=dpd,
+            is_overdue=(dpd > 0 and b.payment_status != "PAID"),
             created_at=b.created_at
         ))
     return results
+
+@router.post("/bills/{bill_id}/pay", response_model=PaymentOut)
+def pay_bill(
+    bill_id: str,
+    payment_data: PaymentCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    payment, _ = PaymentService.record_bill_payment(
+        db=db,
+        business_id=current_user.business_id,
+        bill_id=bill_id,
+        data=payment_data
+    )
+    return payment
+
+# --- Payments & Cash Transactions Traceability ---
+@router.get("/payments", response_model=List[PaymentOut])
+def get_payments(
+    payment_type: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    query = db.query(PaymentRecord).filter(PaymentRecord.business_id == current_user.business_id)
+    if payment_type:
+        query = query.filter(PaymentRecord.payment_type == payment_type.upper())
+    payments = query.order_by(PaymentRecord.payment_date.desc()).all()
+    return payments
+
+@router.get("/transactions", response_model=List[CashTransactionOut])
+def get_cash_transactions(
+    direction: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    query = db.query(CashTransaction).filter(CashTransaction.business_id == current_user.business_id)
+    if direction:
+        query = query.filter(CashTransaction.direction == direction.upper())
+    transactions = query.order_by(CashTransaction.transaction_date.desc()).all()
+    return transactions
 
 # --- Expenses ---
 @router.get("/expenses", response_model=List[ExpenseOut])

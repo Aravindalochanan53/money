@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.schemas.auth import UserCreate, UserLogin, Token
@@ -13,7 +13,25 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
     return AuthService.register_user(db, user_in)
 
 @router.post("/login", response_model=Token)
-def login(credentials: UserLogin, db: Session = Depends(get_db)):
+async def login(request: Request, db: Session = Depends(get_db)):
+    content_type = request.headers.get("content-type", "")
+    
+    if "application/json" in content_type:
+        body = await request.json()
+        email = body.get("email") or body.get("username")
+        password = body.get("password")
+    else:
+        form = await request.form()
+        email = form.get("email") or form.get("username")
+        password = form.get("password")
+        
+    if not email or not password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email and password are required."
+        )
+        
+    credentials = UserLogin(email=str(email).strip().lower(), password=str(password))
     return AuthService.login_user(db, credentials)
 
 @router.get("/me")

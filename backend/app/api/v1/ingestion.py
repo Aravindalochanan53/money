@@ -22,14 +22,13 @@ async def validate_upload(
             detail="Uploaded file is empty."
         )
 
-    raw_rows = IngestionService.read_file_to_dicts(contents, file.filename)
-    if not raw_rows:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Uploaded file contains no data rows."
-        )
-
-    preview_res = IngestionService.validate_dataset(raw_rows, file_type.lower())
+    preview_res = IngestionService.validate_and_store_batch(
+        db=db,
+        business_id=current_user.business_id,
+        file_bytes=contents,
+        filename=file.filename or "upload.csv",
+        file_type=file_type
+    )
     return preview_res
 
 @router.post("/confirm", response_model=IngestionConfirmResponse)
@@ -38,22 +37,22 @@ def confirm_import(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    if not req.records:
+    if not req.batch_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No records provided to confirm."
+            detail="batch_id is required. Client-supplied records cannot bypass server-side batch validation."
         )
 
-    inserted, updated = IngestionService.commit_records(
+    inserted, updated, file_type = IngestionService.confirm_batch(
         db=db,
         business_id=current_user.business_id,
-        file_type=req.file_type.lower(),
-        records=req.records
+        batch_id=req.batch_id
     )
 
     return IngestionConfirmResponse(
+        batch_id=req.batch_id,
         success=True,
-        file_type=req.file_type,
+        file_type=file_type,
         inserted_count=inserted,
         updated_count=updated,
         message=f"Successfully imported {inserted} new records and updated {updated} existing records."

@@ -1,29 +1,65 @@
 import React, { useState, useEffect } from 'react';
 import type { Forecast, ForecastPoint } from '../../contracts/api';
-import { mockApi } from '../../lib/api/mockApi';
+import { apiClient } from '../../lib/api/client';
 import { ForecastChart } from '../../components/ForecastChart';
 import { ShowWorking } from '../../components/ShowWorking';
 import { AsOfStamp } from '../../components/AsOfStamp';
 import { formatDateIST, formatIndianCurrency } from '../../lib/format';
-import { Calendar, TrendingDown, ArrowUpRight, ArrowDownRight, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { Calendar, TrendingDown, ArrowUpRight, ArrowDownRight, AlertTriangle, ShieldCheck, AlertCircle } from 'lucide-react';
 
 export const TimelinePage: React.FC = () => {
   const [horizon, setHorizon] = useState<30 | 60 | 90>(60);
   const [forecast, setForecast] = useState<Forecast | null>(null);
   const [selectedPoint, setSelectedPoint] = useState<ForecastPoint | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadData() {
       setLoading(true);
       try {
-        const fc = await mockApi.getForecast(horizon);
+        const tlData = await apiClient.timeline.getTimeline(horizon);
+
+        const points: ForecastPoint[] = (tlData.timeline || []).map((p: any) => ({
+          date: p.date,
+          openingCash: p.opening_balance.toFixed(2),
+          inflow: p.inflows.toFixed(2),
+          outflow: p.outflows.toFixed(2),
+          closingCash: p.closing_balance.toFixed(2)
+        }));
+
+        const fc: Forecast = {
+          asOf: tlData.anchor_date,
+          horizonDays: horizon,
+          safetyThreshold: tlData.safety_threshold.toFixed(2),
+          points,
+          events: tlData.events || [],
+          summary: {
+            openingCash: tlData.starting_cash.toFixed(2),
+            minCash: tlData.min_projected_cash.toFixed(2),
+            minCashDate: tlData.min_cash_date,
+            endCash: tlData.ending_cash.toFixed(2),
+            daysBelowThreshold: tlData.buffer_breach_count
+          },
+          trace: {
+            formula: "Starting Cash + Projected Inflows - Projected Outflows",
+            inputs: [
+              { label: "Starting Cash", value: `₹${tlData.starting_cash.toLocaleString('en-IN')}` },
+              { label: "Projected Inflows", value: `₹${tlData.total_projected_inflows.toLocaleString('en-IN')}` },
+              { label: "Projected Outflows", value: `₹${tlData.total_projected_outflows.toLocaleString('en-IN')}` },
+              { label: "Safety Threshold", value: `₹${tlData.safety_threshold.toLocaleString('en-IN')}` },
+            ]
+          }
+        };
+
         setForecast(fc);
         if (fc.points.length > 0) {
           setSelectedPoint(fc.points[0]);
         }
-      } catch (err) {
+        setError(null);
+      } catch (err: any) {
         console.error('Failed to load timeline forecast:', err);
+        setError(err.message || 'Failed to load timeline forecast from backend');
       } finally {
         setLoading(false);
       }
@@ -31,7 +67,7 @@ export const TimelinePage: React.FC = () => {
     loadData();
   }, [horizon]);
 
-  if (loading || !forecast) {
+  if (loading) {
     return (
       <div className="space-y-6 animate-pulse max-w-7xl mx-auto p-4">
         <div className="h-8 bg-rule/40 rounded w-1/3"></div>
@@ -39,6 +75,23 @@ export const TimelinePage: React.FC = () => {
       </div>
     );
   }
+
+  if (error || !forecast) {
+    return (
+      <div className="p-8 bg-surface border border-rule rounded text-center space-y-3">
+        <AlertCircle className="w-8 h-8 text-shortfall mx-auto" />
+        <h3 className="text-base font-semibold text-ink">Unable to load timeline</h3>
+        <p className="text-xs text-ink-muted">{error}</p>
+        <button
+          onClick={() => window.location.reload()}
+          className="text-xs px-3 py-1.5 bg-cash text-surface font-semibold rounded"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
 
   const { summary } = forecast;
   const isBufferBreach = summary.daysBelowThreshold > 0;

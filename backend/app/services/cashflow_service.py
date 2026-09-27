@@ -77,14 +77,19 @@ class CashFlowService:
 
             cust_name = inv.customer.name if inv.customer else "Customer"
             inflow_events.append({
+                "source_type": "invoice",
+                "kind": "customer_receipt",
+                "label": f"Invoice #{inv.invoice_number}",
                 "invoice_id": inv.id,
                 "invoice_number": inv.invoice_number,
                 "customer_id": inv.customer_id,
                 "customer_name": cust_name,
+                "counterparty": cust_name,
                 "amount": Decimal(str(inv.outstanding_balance)),
                 "expected_date": eff_date,
                 "due_date": inv.due_date,
                 "original_amount": Decimal(str(inv.original_amount)),
+                "confidence": "at_risk" if (apply_risk_delay and avg_delay > 0) else "scheduled"
             })
 
         # Query unpaid/partially paid payables
@@ -101,14 +106,19 @@ class CashFlowService:
                 sched_date = anchor_date + timedelta(days=1)
             supp_name = bill.supplier.name if bill.supplier else "Supplier"
             outflow_events.append({
+                "source_type": "bill",
+                "kind": "supplier_payment",
+                "label": f"Bill #{bill.bill_number}",
                 "bill_id": bill.id,
                 "bill_number": bill.bill_number,
                 "supplier_id": bill.supplier_id,
                 "supplier_name": supp_name,
+                "counterparty": supp_name,
                 "amount": Decimal(str(bill.outstanding_balance)),
                 "scheduled_date": sched_date,
                 "category": bill.category,
                 "due_date": bill.due_date,
+                "confidence": "scheduled"
             })
 
         # Query recurring expenses and expand across timeline window
@@ -124,12 +134,17 @@ class CashFlowService:
                 cur_d = anchor_date + timedelta(days=d_offset)
                 if cur_d.day == day_num:
                     outflow_events.append({
+                        "source_type": "expense",
+                        "kind": "expense",
+                        "label": exp.title,
                         "expense_id": exp.id,
                         "title": exp.title,
                         "category": exp.category,
                         "amount": amt,
                         "scheduled_date": cur_d,
+                        "confidence": "scheduled"
                     })
+
 
         timeline_result = CashEngine.compute_timeline(
             anchor_date=anchor_date,
@@ -140,6 +155,44 @@ class CashFlowService:
             days=days
         )
 
+        formatted_events = []
+        for idx, inf in enumerate(inflow_events, start=1):
+            d_val = inf["expected_date"]
+            formatted_events.append({
+                "id": f"in-{inf.get('invoice_id', idx)}",
+                "date": d_val.isoformat() if isinstance(d_val, date) else str(d_val),
+                "direction": "in",
+                "kind": inf.get("kind", "customer_receipt"),
+                "label": inf.get("label", "Invoice"),
+                "counterparty": inf.get("counterparty", "Customer"),
+                "amount": f"{float(inf['amount']):.2f}",
+                "confidence": inf.get("confidence", "scheduled"),
+                "sourceRef": {
+                    "type": "invoice",
+                    "id": str(inf.get("invoice_id", ""))
+                }
+            })
+
+        for idx, out in enumerate(outflow_events, start=1):
+            d_val = out["scheduled_date"]
+            formatted_events.append({
+                "id": f"out-{out.get('bill_id', out.get('expense_id', idx))}",
+                "date": d_val.isoformat() if isinstance(d_val, date) else str(d_val),
+                "direction": "out",
+                "kind": out.get("kind", "supplier_payment"),
+                "label": out.get("label", out.get("title", "Commitment")),
+                "counterparty": out.get("counterparty", "Supplier"),
+                "amount": f"{float(out['amount']):.2f}",
+                "confidence": out.get("confidence", "scheduled"),
+                "sourceRef": {
+                    "type": out.get("source_type", "bill"),
+                    "id": str(out.get("bill_id", out.get("expense_id", "")))
+                }
+            })
+
+        formatted_events.sort(key=lambda x: x["date"])
+        timeline_result["events"] = formatted_events
         timeline_result["raw_inflows"] = inflow_events
         timeline_result["raw_outflows"] = outflow_events
         return timeline_result
+

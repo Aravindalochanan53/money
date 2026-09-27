@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import List, Dict, Any, Optional
 
@@ -27,6 +27,17 @@ class DailyCashPoint:
         self.outflow_items = outflow_items or []
 
     def to_dict(self) -> Dict[str, Any]:
+        def _serialize_item(item: Dict[str, Any]) -> Dict[str, Any]:
+            res = {}
+            for k, v in item.items():
+                if isinstance(v, Decimal):
+                    res[k] = float(v)
+                elif isinstance(v, (date, datetime)):
+                    res[k] = v.isoformat()
+                else:
+                    res[k] = v
+            return res
+
         return {
             "date": self.date.isoformat(),
             "opening_balance": float(self.opening_balance),
@@ -36,9 +47,10 @@ class DailyCashPoint:
             "closing_balance": float(self.closing_balance),
             "is_buffer_breach": self.is_buffer_breach,
             "is_deficit": self.is_deficit,
-            "inflow_items": self.inflow_items,
-            "outflow_items": self.outflow_items,
+            "inflow_items": [_serialize_item(i) for i in self.inflow_items],
+            "outflow_items": [_serialize_item(o) for o in self.outflow_items],
         }
+
 
 
 class CashEngine:

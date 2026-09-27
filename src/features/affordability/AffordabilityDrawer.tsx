@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { AffordResult } from '../../contracts/api';
-import { mockApi } from '../../lib/api/mockApi';
+import { apiClient } from '../../lib/api/client';
 import { ForecastChart } from '../../components/ForecastChart';
 import { ShowWorking } from '../../components/ShowWorking';
 import { formatIndianCurrency } from '../../lib/format';
@@ -32,9 +32,102 @@ export const AffordabilityDrawer: React.FC<AffordabilityDrawerProps> = ({
     async function evaluate() {
       setLoading(true);
       try {
-        const res = await mockApi.checkAffordability(amount, purchaseDate);
+        const numAmt = parseFloat(amount) || 0;
+        const [evalRes, tlData] = await Promise.all([
+          apiClient.affordability.check({
+            purchase_title: purchaseTitle || 'Planned Expense',
+            amount: numAmt,
+            planned_date: purchaseDate
+          }),
+          apiClient.timeline.getTimeline(30)
+        ]);
+
+        const baselinePoints = (tlData.timeline || []).map((p: any) => ({
+          date: p.date,
+          openingCash: p.opening_balance.toFixed(2),
+          inflow: p.inflows.toFixed(2),
+          outflow: p.outflows.toFixed(2),
+          closingCash: p.closing_balance.toFixed(2)
+        }));
+
+        const decisionPoints = (tlData.timeline || []).map((p: any) => {
+          const isAfter = p.date >= purchaseDate;
+          const adjustedOutflow = isAfter ? p.outflows + numAmt : p.outflows;
+          const adjustedClosing = isAfter ? p.closing_balance - numAmt : p.closing_balance;
+          return {
+            date: p.date,
+            openingCash: p.opening_balance.toFixed(2),
+            inflow: p.inflows.toFixed(2),
+            outflow: adjustedOutflow.toFixed(2),
+            closingCash: adjustedClosing.toFixed(2)
+          };
+        });
+
+        const v = evalRes.verdict === 'AFFORDABLE' ? 'safe' : (evalRes.verdict === 'RISKY' ? 'tight' : 'unsafe');
+
+        const affordRes: AffordResult = {
+          input: { amount, date: purchaseDate },
+          baseline: {
+            asOf: tlData.anchor_date,
+            horizonDays: 30,
+            safetyThreshold: tlData.safety_threshold.toFixed(2),
+            points: baselinePoints,
+            events: tlData.events || [],
+            summary: {
+              openingCash: tlData.starting_cash.toFixed(2),
+              minCash: evalRes.baseline_min_cash.toFixed(2),
+              minCashDate: evalRes.baseline_min_date || tlData.min_cash_date,
+              endCash: tlData.ending_cash.toFixed(2),
+              daysBelowThreshold: tlData.buffer_breach_count
+            },
+            trace: {
+              formula: "Starting Cash + Inflows - Outflows",
+              inputs: []
+            }
+          },
+          withDecision: {
+            asOf: tlData.anchor_date,
+            horizonDays: 30,
+            safetyThreshold: tlData.safety_threshold.toFixed(2),
+            points: decisionPoints,
+            events: tlData.events || [],
+            summary: {
+              openingCash: tlData.starting_cash.toFixed(2),
+              minCash: evalRes.simulated_min_cash.toFixed(2),
+              minCashDate: evalRes.simulated_min_date || purchaseDate,
+              endCash: (tlData.ending_cash - numAmt).toFixed(2),
+              daysBelowThreshold: v === 'safe' ? 0 : 1
+            },
+            trace: {
+              formula: "Baseline Min Cash - Planned Amount",
+              inputs: [
+                { label: "Baseline Lowest Cash", value: `₹${evalRes.baseline_min_cash.toLocaleString('en-IN')}` },
+                { label: "Outflow Amount", value: `₹${numAmt.toLocaleString('en-IN')}` },
+                { label: "Simulated Lowest Cash", value: `₹${evalRes.simulated_min_cash.toLocaleString('en-IN')}` },
+                { label: "Safety Threshold", value: `₹${evalRes.safety_threshold.toLocaleString('en-IN')}` }
+              ]
+            }
+          },
+          minCashDifference: String(evalRes.min_cash_impact),
+          verdict: v,
+          headline: evalRes.explanation,
+          facts: [
+            { label: "Lowest Without", value: `₹${evalRes.baseline_min_cash.toLocaleString('en-IN')}` },
+            { label: "Lowest With", value: `₹${evalRes.simulated_min_cash.toLocaleString('en-IN')}` },
+            { label: "Safety Reserve", value: `₹${evalRes.safety_threshold.toLocaleString('en-IN')}` }
+          ],
+          trace: {
+            formula: "Baseline Min Cash - Planned Expense Amount",
+            inputs: [
+              { label: "Baseline Lowest Cash", value: `₹${evalRes.baseline_min_cash.toLocaleString('en-IN')}` },
+              { label: "Planned Outflow", value: `₹${numAmt.toLocaleString('en-IN')}` },
+              { label: "Simulated Lowest Cash", value: `₹${evalRes.simulated_min_cash.toLocaleString('en-IN')}` }
+            ]
+          }
+        };
+
         if (isMounted) {
-          setResult(res);
+          setResult(affordRes);
         }
       } catch (err) {
         console.error('Affordability calculation error:', err);
@@ -42,6 +135,7 @@ export const AffordabilityDrawer: React.FC<AffordabilityDrawerProps> = ({
         if (isMounted) setLoading(false);
       }
     }
+
 
     const timer = setTimeout(evaluate, 150);
     return () => {

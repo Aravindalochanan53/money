@@ -1,32 +1,48 @@
 import React, { useState, useEffect } from 'react';
 import type { ActionItem } from '../../contracts/api';
-import { mockApi } from '../../lib/api/mockApi';
+import { apiClient } from '../../lib/api/client';
 import { formatDateIST, formatIndianCurrency } from '../../lib/format';
-import { CheckSquare, Clock, CheckCircle2, ArrowRight } from 'lucide-react';
+import { CheckSquare, Clock, CheckCircle2, ArrowRight, AlertCircle, RefreshCw } from 'lucide-react';
 
 export const ActionsPage: React.FC = () => {
   const [actions, setActions] = useState<ActionItem[]>([]);
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'done' | 'dismissed'>('open');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const data = await apiClient.actions.list();
+      const normalized: ActionItem[] = data.map((a: any) => ({
+        id: a.id,
+        ruleId: a.action_code || 'RULE-01',
+        title: a.title,
+        reason: a.description,
+        severity: a.severity.toLowerCase() as any,
+        nextStep: a.suggested_action,
+        status: a.status.toLowerCase() === 'resolved' ? 'done' : (a.status.toLowerCase() === 'dismissed' ? 'dismissed' : 'open'),
+        amount: a.amount ? String(a.amount) : undefined,
+        dueDate: a.target_date || undefined
+      }));
+      setActions(normalized);
+      setError(null);
+    } catch (err: any) {
+      console.error('Failed to load action items:', err);
+      setError(err.message || 'Failed to load action items from backend');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    async function loadData() {
-      setLoading(true);
-      try {
-        const data = await mockApi.listActions();
-        setActions(data);
-      } catch (err) {
-        console.error('Failed to load action items:', err);
-      } finally {
-        setLoading(false);
-      }
-    }
     loadData();
   }, []);
 
   async function handleStatusChange(actionId: string, newStatus: 'open' | 'done' | 'dismissed') {
     try {
-      await mockApi.updateActionStatus(actionId, newStatus);
+      const backendStatus = newStatus === 'done' ? 'RESOLVED' : (newStatus === 'dismissed' ? 'DISMISSED' : 'OPEN');
+      await apiClient.actions.updateStatus(actionId, backendStatus);
       setActions(prev =>
         prev.map(a => (a.id === actionId ? { ...a, status: newStatus } : a))
       );
@@ -34,6 +50,7 @@ export const ActionsPage: React.FC = () => {
       console.error('Failed to update action status:', err);
     }
   }
+
 
   if (loading) {
     return (
@@ -67,6 +84,16 @@ export const ActionsPage: React.FC = () => {
             Deterministic liquidity interventions prioritized by financial urgency
           </p>
         </div>
+
+        {error && (
+          <div className="bg-shortfall/10 border border-shortfall text-shortfall p-3 rounded text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{error}</span>
+            <button onClick={loadData} className="ml-auto underline flex items-center gap-1">
+              <RefreshCw className="w-3 h-3" /> Retry
+            </button>
+          </div>
+        )}
 
         {/* Status Filter Pills */}
         <div className="flex bg-paper border border-rule rounded p-0.5">

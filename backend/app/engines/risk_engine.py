@@ -120,6 +120,16 @@ class RiskEngine:
         else:
             risk_tier = "HIGH"
 
+        # Deterministic human-readable explanation
+        reasons = []
+        if delay_pts >= 50:
+            reasons.append(f"Historical payment delay avg {round(avg_delay_days, 1)} days")
+        if overdue_pts >= 60:
+            reasons.append(f"Invoices overdue up to {max_dpd} days (INR {float(overdue_amount):,.2f})")
+        if concentration_pts >= 75:
+            reasons.append(f"High revenue concentration ({round(concentration_pct, 1)}%)")
+        explanation = "; ".join(reasons) if reasons else "Payment patterns within normal credit grace period"
+
         return {
             "customer_id": customer_id,
             "customer_name": customer_name,
@@ -128,8 +138,11 @@ class RiskEngine:
             "avg_delay_days": round(avg_delay_days, 1),
             "max_dpd": max_dpd,
             "total_outstanding": float(customer_ar),
+            "total_ar": float(customer_ar),
             "overdue_amount": float(overdue_amount),
             "concentration_pct": round(concentration_pct, 1),
+            "explanation": explanation,
+            "open_invoices_count": len(invoices),
             "factors": {
                 "delay_points": delay_pts,
                 "overdue_points": overdue_pts,

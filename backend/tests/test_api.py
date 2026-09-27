@@ -3,14 +3,12 @@ import uuid
 from fastapi.testclient import TestClient
 from app.main import app
 
-client = TestClient(app)
-
-def test_health_check():
+def test_health_check(client):
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "healthy"
 
-def test_auth_and_tenant_isolation():
+def test_auth_and_tenant_isolation(client):
     run_id = uuid.uuid4().hex[:6]
     email_a = f"owner_a_{run_id}@factory.com"
     email_b = f"owner_b_{run_id}@trading.com"
@@ -70,15 +68,13 @@ def test_auth_and_tenant_isolation():
     assert val_res.status_code == 200
     assert val_res.json()["valid_rows"] == 2
     assert val_res.json()["is_ready_to_import"] is True
+    batch_id = val_res.json()["batch_id"]
 
-    # Confirm Import
+    # Confirm Import using validated batch_id
     conf_res = client.post(
         "/api/v1/import/confirm",
         headers=headers_a,
-        json={
-            "file_type": "receivables",
-            "records": val_res.json()["preview_data"]
-        }
+        json={"batch_id": batch_id}
     )
     assert conf_res.status_code == 200
     assert conf_res.json()["inserted_count"] == 2

@@ -12,7 +12,10 @@ import {
   ChevronRight,
   Building2,
   FileSpreadsheet,
-  Settings
+  Settings,
+  CreditCard,
+  LogOut,
+  User as UserIcon
 } from 'lucide-react';
 import { AsOfStamp } from './AsOfStamp';
 
@@ -24,6 +27,8 @@ interface ShellProps {
   actionBadgeCount?: number;
   businessName?: string;
   asOfDate?: string;
+  userEmail?: string;
+  onLogout?: () => void;
 }
 
 export const Shell: React.FC<ShellProps> = ({
@@ -31,9 +36,11 @@ export const Shell: React.FC<ShellProps> = ({
   activePath,
   onNavigate,
   onOpenAffordDrawer,
-  actionBadgeCount = 3,
-  businessName = 'Sri Lakshmi Components Pvt Ltd',
-  asOfDate = '2026-09-19'
+  actionBadgeCount = 0,
+  businessName = 'My Business',
+  asOfDate = new Date().toISOString().split('T')[0],
+  userEmail,
+  onLogout
 }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -41,6 +48,7 @@ export const Shell: React.FC<ShellProps> = ({
   const navItems = [
     { path: '/overview', label: 'Overview', icon: LayoutDashboard },
     { path: '/timeline', label: 'Cash Timeline', icon: TrendingDown },
+    { path: '/payables', label: 'Accounts Payable', icon: CreditCard },
     { path: '/risk', label: 'Receivable Risk', icon: ShieldAlert },
     { path: '/scenarios', label: 'Scenario Simulator', icon: Sliders },
     { path: '/actions', label: 'Action Center', icon: CheckSquare, badge: actionBadgeCount },
@@ -49,13 +57,13 @@ export const Shell: React.FC<ShellProps> = ({
 
   return (
     <div className="min-h-screen bg-paper text-ink flex flex-col font-sans">
-      {/* Persistent Mock API Banner */}
+      {/* Live Backend Connection Status Bar */}
       <div className="bg-ink text-paper text-xs px-4 py-1 flex items-center justify-between font-mono border-b border-rule">
         <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-threshold animate-pulse"></span>
-          <span className="font-semibold tracking-wide">DEMO DATA — MOCK API ACTIVE</span>
+          <span className="w-2 h-2 rounded-full bg-cash animate-pulse"></span>
+          <span className="font-semibold tracking-wide text-[11px]">FASTAPI BACKEND ACTIVE • POSTGRESQL ARCHITECTURE</span>
         </div>
-        <span className="text-[11px] text-ink-muted">Press Alt+A for "Can I afford this?" drawer</span>
+        <span className="text-[11px] text-ink-muted hidden sm:inline">Press Alt+A for "Can I afford this?" decision drawer</span>
       </div>
 
       {/* Main Top Header */}
@@ -93,12 +101,31 @@ export const Shell: React.FC<ShellProps> = ({
           {/* Business Switcher / Context */}
           <div className="hidden sm:flex items-center gap-1.5 text-xs text-ink font-medium bg-paper px-2.5 py-1 rounded border border-rule">
             <Building2 className="w-3.5 h-3.5 text-ink-muted" />
-            <span className="truncate max-w-[200px]">{businessName}</span>
+            <span className="truncate max-w-[200px] font-semibold">{businessName}</span>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
           <AsOfStamp date={asOfDate} className="hidden md:inline-flex" />
+
+          {/* User info & Logout */}
+          {userEmail && (
+            <div className="hidden md:flex items-center gap-2 text-xs text-ink-muted border-r border-rule pr-3">
+              <UserIcon className="w-3.5 h-3.5" />
+              <span className="truncate max-w-[150px]">{userEmail}</span>
+            </div>
+          )}
+
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              className="text-xs px-2.5 py-1.5 bg-paper hover:bg-rule/40 border border-rule rounded text-ink flex items-center gap-1"
+              title="Sign Out"
+            >
+              <LogOut className="w-3.5 h-3.5 text-ink-muted" />
+              <span className="hidden sm:inline">Logout</span>
+            </button>
+          )}
 
           {/* Persistent Hero CTA Button: Can I afford this? */}
           <button
@@ -131,6 +158,7 @@ export const Shell: React.FC<ShellProps> = ({
             </nav>
           </div>
         )}
+
         {/* Desktop Collapsible Left Navigation Rail */}
         <aside
           className={`hidden lg:flex flex-col bg-surface border-r border-rule transition-all duration-200 ${

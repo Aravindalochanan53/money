@@ -9,6 +9,11 @@ from app.models.expense import RecurringExpense
 from app.models.payment_history import HistoricalPayment
 from app.models.affordability import AffordabilityQuery
 from app.models.action_item import ActionItem
+from app.models.payment import PaymentRecord
+from app.models.cash_transaction import CashTransaction
+from app.models.scenario import Scenario, ScenarioChange
+from app.models.risk_alert import RiskAlert
+from app.models.import_batch import ImportBatch
 
 __all__ = [
     "Base",
@@ -23,4 +28,10 @@ __all__ = [
     "HistoricalPayment",
     "AffordabilityQuery",
     "ActionItem",
+    "PaymentRecord",
+    "CashTransaction",
+    "Scenario",
+    "ScenarioChange",
+    "RiskAlert",
+    "ImportBatch",
 ]

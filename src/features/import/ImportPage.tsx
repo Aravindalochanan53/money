@@ -1,62 +1,100 @@
 import React, { useState } from 'react';
-import type { ImportIssue } from '../../contracts/api';
-import { mockApi } from '../../lib/api/mockApi';
-import { FileSpreadsheet, UploadCloud, CheckCircle2, AlertTriangle, Download, RefreshCw, FileText, ArrowRight } from 'lucide-react';
+import { apiClient } from '../../lib/api/client';
+import { useAuth } from '../../lib/auth/AuthContext';
+import {
+  FileSpreadsheet,
+  UploadCloud,
+  CheckCircle2,
+  AlertTriangle,
+  Download,
+  RefreshCw,
+  FileText,
+  ArrowRight,
+  AlertCircle,
+  Copy
+} from 'lucide-react';
+
+interface ValidationError {
+  row_number: number;
+  column?: string;
+  message: string;
+  raw_data: Record<string, any>;
+}
+
+interface BatchPreview {
+  batch_id: string;
+  file_type: string;
+  total_rows: number;
+  valid_rows: number;
+  error_rows: number;
+  duplicate_count: number;
+  preview_data: any[];
+  errors: ValidationError[];
+  is_ready_to_import: boolean;
+}
 
 export const ImportPage: React.FC = () => {
+  const { refreshProfile } = useAuth();
   const [selectedType, setSelectedType] = useState<'receivables' | 'payables' | 'expenses'>('receivables');
   const [isDragging, setIsDragging] = useState(false);
-  const [importResult, setImportResult] = useState<{
-    importId: string;
-    rowCount: number;
-    issues: ImportIssue[];
-  } | null>(null);
-  const [isSuccess, setIsSuccess] = useState(false);
+  const [batchPreview, setBatchPreview] = useState<BatchPreview | null>(null);
+  const [confirmResult, setConfirmResult] = useState<{ inserted: number; updated: number; message: string } | null>(null);
   const [loading, setLoading] = useState(false);
-  const [demoLoaded, setDemoLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [demoLoading, setDemoLoading] = useState(false);
+  const [demoSuccess, setDemoSuccess] = useState<string | null>(null);
 
   async function handleFileSelect(file: File) {
     setLoading(true);
-    setIsSuccess(false);
+    setError(null);
+    setConfirmResult(null);
     try {
-      const res = await mockApi.uploadImport(file);
-      setImportResult(res);
-    } catch (err) {
+      const res = await apiClient.import.validate(file, selectedType);
+      setBatchPreview(res);
+    } catch (err: any) {
       console.error('Upload validation failed:', err);
+      setError(err.message || 'File validation failed. Please check format.');
     } finally {
       setLoading(false);
     }
   }
 
   async function handleConfirm() {
-    if (!importResult) return;
+    if (!batchPreview || !batchPreview.batch_id) return;
     setLoading(true);
+    setError(null);
     try {
-      await mockApi.confirmImport(importResult.importId);
-      setIsSuccess(true);
-    } catch (err) {
+      const res = await apiClient.import.confirm(batchPreview.batch_id);
+      setConfirmResult({
+        inserted: res.inserted_count,
+        updated: res.updated_count,
+        message: res.message
+      });
+      await refreshProfile();
+    } catch (err: any) {
       console.error('Confirm import failed:', err);
+      setError(err.message || 'Failed to atomically confirm import batch.');
     } finally {
       setLoading(false);
     }
   }
 
   async function handleLoadSriLakshmiDemo() {
-    setLoading(true);
+    setDemoLoading(true);
+    setDemoSuccess(null);
+    setError(null);
     try {
-      // The current frontend intentionally runs on the deterministic mock API.
-      // Loading sample data is immediate and does not pretend to call an authenticated backend.
-      setDemoLoaded(true);
-      setTimeout(() => setDemoLoaded(false), 5000);
-    } catch (err) {
-      console.log('Demo load trigger:', err);
+      const res = await apiClient.business.loadDemoData();
+      setDemoSuccess(
+        `Loaded golden demo dataset: ${res.receivables_count} receivables, ${res.payables_count} payables, ${res.expenses_count} recurring expenses!`
+      );
+      await refreshProfile();
+    } catch (err: any) {
+      setError(err.message || 'Failed to load demo data into database.');
     } finally {
-      setLoading(false);
+      setDemoLoading(false);
     }
   }
-
-  const errors = importResult?.issues.filter(i => i.severity === 'error') || [];
-  const warnings = importResult?.issues.filter(i => i.severity === 'warning') || [];
 
   return (
     <div className="space-y-6 pb-12">
@@ -65,23 +103,37 @@ export const ImportPage: React.FC = () => {
         <div>
           <h1 className="text-xl font-bold tracking-tight text-ink flex items-center gap-2">
             <FileSpreadsheet className="w-5 h-5 text-cash" />
-            Financial Data Ingestion
+            Server-Side Financial Data Ingestion
           </h1>
           <p className="text-xs text-ink-muted">
-            Import Accounts Receivable, Supplier Payables, and Fixed Recurring Commitments
+            Two-stage batch verification: validate file, inspect preview & duplicate detection, confirm atomically by Batch ID
           </p>
         </div>
 
         {/* Demo Data Quick Load Button */}
         <button
           onClick={handleLoadSriLakshmiDemo}
-          disabled={loading}
-          className="px-3.5 py-1.5 bg-paper border border-rule hover:border-cash text-ink text-xs font-semibold rounded flex items-center gap-2 transition-colors shadow-xs"
+          disabled={demoLoading}
+          className="px-3.5 py-1.5 bg-paper border border-rule hover:border-cash text-ink text-xs font-semibold rounded flex items-center gap-2 transition-colors shadow-xs disabled:opacity-50"
         >
-          <RefreshCw className={`w-3.5 h-3.5 text-cash ${loading ? 'animate-spin' : ''}`} />
-          {demoLoaded ? 'Demo Loaded Successfully!' : 'Load Sri Lakshmi Components Dataset'}
+          <RefreshCw className={`w-3.5 h-3.5 text-cash ${demoLoading ? 'animate-spin' : ''}`} />
+          <span>{demoLoading ? 'Ingesting Demo...' : 'Load Golden Demo Dataset'}</span>
         </button>
       </div>
+
+      {error && (
+        <div className="p-3 bg-shortfall/10 border border-shortfall/30 rounded text-xs text-shortfall flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {demoSuccess && (
+        <div className="p-3 bg-cash/10 border border-cash/30 rounded text-xs text-cash flex items-start gap-2">
+          <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>{demoSuccess}</span>
+        </div>
+      )}
 
       {/* Dataset Type Selector */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -92,7 +144,11 @@ export const ImportPage: React.FC = () => {
         ].map(tab => (
           <button
             key={tab.id}
-            onClick={() => setSelectedType(tab.id as any)}
+            onClick={() => {
+              setSelectedType(tab.id as any);
+              setBatchPreview(null);
+              setConfirmResult(null);
+            }}
             className={`p-4 rounded-lg border text-left transition-all ${
               selectedType === tab.id
                 ? 'bg-surface border-ink shadow-sm ring-1 ring-ink'
@@ -110,7 +166,7 @@ export const ImportPage: React.FC = () => {
         <div className="flex items-center gap-2">
           <FileText className="w-4 h-4 text-cash shrink-0" />
           <span className="text-ink">
-            Need the official CSV format? Download the standardized template for {selectedType}:
+            Download standard format template for <span className="font-semibold">{selectedType}</span>:
           </span>
         </div>
         <a
@@ -147,15 +203,15 @@ export const ImportPage: React.FC = () => {
         </div>
         <div>
           <h3 className="text-sm font-bold text-ink">
-            Drag & drop your {selectedType} spreadsheet here
+            {loading ? 'Processing & Validating on Server...' : `Drag & drop ${selectedType} workbook here`}
           </h3>
           <p className="text-xs text-ink-muted mt-0.5">
-            Supports .CSV and .XLSX workbooks up to 10 MB
+            Strict row-level schema validation, intra-file and cross-db duplicate checking
           </p>
         </div>
         <div>
           <label className="px-4 py-2 bg-ink text-surface text-xs font-semibold rounded cursor-pointer hover:bg-ink/90 inline-block transition-colors shadow-xs">
-            Browse File
+            Browse File (.csv, .xlsx)
             <input
               type="file"
               accept=".csv,.xlsx,.xls"
@@ -170,87 +226,143 @@ export const ImportPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Validation Result Inspection */}
-      {importResult && (
+      {/* Batch Validation Results Inspection */}
+      {batchPreview && (
         <div className="space-y-4">
           {/* Summary Banner */}
           <div className="bg-surface p-5 rounded-lg border border-rule flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h3 className="text-sm font-bold text-ink">
-                Validation Complete: {importResult.rowCount} rows processed
-              </h3>
-              <div className="flex items-center gap-4 text-xs mt-1">
-                <span className="text-cash font-semibold flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> {importResult.rowCount - errors.length} valid rows
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs px-2 py-0.5 bg-paper border border-rule rounded text-ink-muted">
+                  Batch ID: {batchPreview.batch_id.slice(0, 8)}...
                 </span>
-                {errors.length > 0 && (
-                  <span className="text-shortfall font-semibold flex items-center gap-1">
-                    <AlertTriangle className="w-3.5 h-3.5" /> {errors.length} formatting errors
+                <span className="text-xs text-ink-muted capitalize">• {batchPreview.file_type}</span>
+              </div>
+              <h3 className="text-sm font-bold text-ink">
+                Server Validation: {batchPreview.total_rows} total rows processed
+              </h3>
+              <div className="flex flex-wrap items-center gap-4 text-xs pt-1">
+                <span className="text-cash font-semibold flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> {batchPreview.valid_rows} ready rows
+                </span>
+                {batchPreview.duplicate_count > 0 && (
+                  <span className="text-amber-600 font-semibold flex items-center gap-1">
+                    <Copy className="w-3.5 h-3.5" /> {batchPreview.duplicate_count} updates/duplicates detected
                   </span>
                 )}
-                {warnings.length > 0 && (
-                  <span className="text-amber-600 font-semibold flex items-center gap-1">
-                    <AlertTriangle className="w-3.5 h-3.5" /> {warnings.length} warnings
+                {batchPreview.error_rows > 0 && (
+                  <span className="text-shortfall font-semibold flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5" /> {batchPreview.error_rows} error rows
                   </span>
                 )}
               </div>
             </div>
 
-            {!isSuccess && (
+            {!confirmResult ? (
               <button
                 onClick={handleConfirm}
-                disabled={loading}
-                className="px-5 py-2 bg-cash text-surface text-xs font-bold rounded hover:bg-cash/90 transition-colors shadow-sm inline-flex items-center gap-1.5"
+                disabled={loading || !batchPreview.is_ready_to_import}
+                className="px-5 py-2 bg-cash text-surface text-xs font-bold rounded hover:bg-cash/90 transition-colors shadow-sm inline-flex items-center gap-1.5 disabled:opacity-50"
               >
-                {errors.length > 0 ? `Import ${importResult.rowCount - errors.length} valid rows` : 'Confirm & Ingest Data'} <ArrowRight className="w-4 h-4" />
+                {loading ? 'Confirming Atomic Ingestion...' : `Confirm & Commit Batch`}
+                <ArrowRight className="w-4 h-4" />
               </button>
-            )}
-
-            {isSuccess && (
+            ) : (
               <div className="px-4 py-2 bg-cash/10 text-cash border border-cash/30 rounded text-xs font-bold flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4" /> Ingested Into Engine!
+                <CheckCircle2 className="w-4 h-4" />
+                <span>
+                  Ingested: {confirmResult.inserted} added, {confirmResult.updated} updated!
+                </span>
               </div>
             )}
           </div>
 
-          {/* Detailed Issues Table */}
-          {importResult.issues.length > 0 && (
+          {/* Validated Rows Preview Table */}
+          {batchPreview.preview_data && batchPreview.preview_data.length > 0 && (
             <div className="bg-surface rounded-lg border border-rule overflow-hidden">
-              <div className="p-3 border-b border-rule bg-paper">
+              <div className="p-3 border-b border-rule bg-paper flex items-center justify-between">
                 <h4 className="text-xs font-bold text-ink uppercase tracking-wider">
-                  Validation Log & Actionable Correction Steps
+                  Validated Staged Rows (First {batchPreview.preview_data.length})
                 </h4>
+                <span className="text-[11px] text-ink-muted">Server Preview Cache</span>
               </div>
-              <div className="overflow-x-auto">
+              <div className="max-h-60 overflow-y-auto">
                 <table className="w-full text-xs text-left">
-                  <thead className="bg-paper text-ink-muted font-semibold border-b border-rule">
+                  <thead className="bg-paper text-ink-muted font-mono text-[11px] border-b border-rule sticky top-0">
                     <tr>
-                      <th className="py-2.5 px-4">Row #</th>
-                      <th className="py-2.5 px-4">Column</th>
-                      <th className="py-2.5 px-4">Severity</th>
-                      <th className="py-2.5 px-4">Issue Description</th>
-                      <th className="py-2.5 px-4">Engine Action / Suggested Fix</th>
+                      <th className="py-2 px-3">#</th>
+                      <th className="py-2 px-3">Identifier / Ref</th>
+                      <th className="py-2 px-3">Counterparty</th>
+                      <th className="py-2 px-3 text-right">Amount (₹)</th>
+                      <th className="py-2 px-3">Due / Date</th>
+                      <th className="py-2 px-3 text-center">Record Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-rule font-mono">
-                    {importResult.issues.map((iss, idx) => (
+                    {batchPreview.preview_data.map((row, idx) => (
                       <tr key={idx} className="hover:bg-paper/50">
-                        <td className="py-2.5 px-4 font-bold text-ink">Row {iss.row}</td>
-                        <td className="py-2.5 px-4 text-ink-muted">{iss.column}</td>
-                        <td className="py-2.5 px-4 font-sans">
-                          {iss.severity === 'error' ? (
-                            <span className="px-2 py-0.5 rounded bg-shortfall/10 text-shortfall font-bold text-[10px]">
-                              ERROR
+                        <td className="py-1.5 px-3 text-ink-muted">{row.row_num || idx + 1}</td>
+                        <td className="py-1.5 px-3 font-semibold text-ink">
+                          {row.invoice_number || row.bill_number || row.title}
+                        </td>
+                        <td className="py-1.5 px-3 font-sans">
+                          {row.customer_name || row.supplier_name || row.category}
+                        </td>
+                        <td className="py-1.5 px-3 text-right">
+                          {(row.original_amount || row.amount || 0).toLocaleString('en-IN')}
+                        </td>
+                        <td className="py-1.5 px-3 font-sans">
+                          {row.due_date || (row.recurrence_day_of_month ? `Day ${row.recurrence_day_of_month}` : '-')}
+                        </td>
+                        <td className="py-1.5 px-3 text-center font-sans text-[10px]">
+                          {row.is_existing_record ? (
+                            <span className="text-amber-600 font-semibold bg-amber-50 px-1.5 py-0.5 rounded">
+                              Will Update
                             </span>
                           ) : (
-                            <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 font-bold text-[10px]">
-                              WARNING
+                            <span className="text-cash font-semibold bg-cash/10 px-1.5 py-0.5 rounded">
+                              New Record
                             </span>
                           )}
                         </td>
-                        <td className="py-2.5 px-4 font-sans text-ink">{iss.message}</td>
-                        <td className="py-2.5 px-4 font-sans text-cash font-semibold">
-                          {iss.suggestedFix}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Detailed Error Log */}
+          {batchPreview.errors && batchPreview.errors.length > 0 && (
+            <div className="bg-surface rounded-lg border border-rule overflow-hidden">
+              <div className="p-3 border-b border-rule bg-shortfall/5 flex items-center justify-between">
+                <h4 className="text-xs font-bold text-shortfall uppercase tracking-wider flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4" />
+                  <span>Validation Errors ({batchPreview.errors.length})</span>
+                </h4>
+                <span className="text-[11px] text-ink-muted">Row-Level Integrity Protection</span>
+              </div>
+              <div className="max-h-60 overflow-y-auto">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-paper text-ink-muted font-semibold border-b border-rule">
+                    <tr>
+                      <th className="py-2 px-3">Row #</th>
+                      <th className="py-2 px-3">Field / Column</th>
+                      <th className="py-2 px-3">Validation Message</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-rule font-sans">
+                    {batchPreview.errors.map((err, idx) => (
+                      <tr key={idx} className="hover:bg-paper/50">
+                        <td className="py-2 px-3 font-mono font-bold text-shortfall">
+                          Row {err.row_number}
+                        </td>
+                        <td className="py-2 px-3 font-mono text-ink-muted">
+                          {err.column || 'Row Schema'}
+                        </td>
+                        <td className="py-2 px-3 text-ink">
+                          {err.message}
                         </td>
                       </tr>
                     ))}

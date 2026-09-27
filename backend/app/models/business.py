@@ -30,6 +30,12 @@ class Business(Base):
     historical_payments = relationship("HistoricalPayment", back_populates="business", cascade="all, delete-orphan")
     affordability_queries = relationship("AffordabilityQuery", back_populates="business", cascade="all, delete-orphan")
     action_items = relationship("ActionItem", back_populates="business", cascade="all, delete-orphan")
+    payments = relationship("PaymentRecord", back_populates="business", cascade="all, delete-orphan")
+    cash_transactions = relationship("CashTransaction", back_populates="business", cascade="all, delete-orphan")
+    scenarios = relationship("Scenario", back_populates="business", cascade="all, delete-orphan")
+    risk_alerts = relationship("RiskAlert", back_populates="business", cascade="all, delete-orphan")
+    import_batches = relationship("ImportBatch", back_populates="business", cascade="all, delete-orphan")
+
 
 
 class BankCashBalance(Base):

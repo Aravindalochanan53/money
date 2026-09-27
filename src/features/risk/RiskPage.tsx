@@ -1,27 +1,92 @@
 import React, { useState, useEffect } from 'react';
 import type { ReceivableRisk } from '../../contracts/api';
-import { mockApi } from '../../lib/api/mockApi';
+import { apiClient } from '../../lib/api/client';
 import { formatDateIST, formatIndianCurrency } from '../../lib/format';
-import { ShieldAlert, AlertTriangle, CheckCircle, Search } from 'lucide-react';
+import { ShieldAlert, AlertTriangle, CheckCircle, Search, AlertCircle, RefreshCw, Download, Check } from 'lucide-react';
 
 export const RiskPage: React.FC = () => {
   const [risks, setRisks] = useState<ReceivableRisk[]>([]);
   const [filterLevel, setFilterLevel] = useState<'all' | 'high' | 'medium' | 'low'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [downloadSuccess, setDownloadSuccess] = useState<string | null>(null);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [riskSummary, invoices] = await Promise.all([
+        apiClient.risk.getReceivableRisk(),
+        apiClient.financial.getInvoices()
+      ]);
+
+      const customerMap = new Map<string, any>();
+      (riskSummary.customers || []).forEach((c: any) => {
+        customerMap.set(c.customer_id, c);
+      });
+
+      const today = new Date();
+      const riskItems: ReceivableRisk[] = invoices.map((inv: any) => {
+        const custInfo = customerMap.get(inv.customer_id);
+        const dueDate = new Date(inv.due_date);
+        const daysOverdue = Math.max(0, Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 3600 * 24)));
+
+        let level: 'low' | 'medium' | 'high' = 'low';
+        if (custInfo?.risk_tier === 'HIGH' || daysOverdue > 30) {
+          level = 'high';
+        } else if (custInfo?.risk_tier === 'MEDIUM' || daysOverdue > 0) {
+          level = 'medium';
+        }
+
+        const ruleHits: Array<{ ruleId: string; description: string; inputs: Record<string, string | number> }> = [];
+        if (daysOverdue > 30) {
+          ruleHits.push({
+            ruleId: 'RULE-OVERDUE-30',
+            description: `Invoice is ${daysOverdue} days past due date`,
+            inputs: { daysOverdue }
+          });
+        }
+        if (custInfo?.risk_tier === 'HIGH') {
+          ruleHits.push({
+            ruleId: 'RULE-CUST-HIGH-RISK',
+            description: `Customer scored high risk (${custInfo.explanation || 'Severe payment delays'})`,
+            inputs: { avgDelayDays: custInfo.avg_delay_days || 0 }
+          });
+        }
+        if (ruleHits.length === 0) {
+          ruleHits.push({
+            ruleId: 'RULE-STANDARD-COLLECTION',
+            description: 'Routine collection schedule within credit grace period',
+            inputs: { standardCreditDays: 30 }
+          });
+        }
+
+        return {
+          invoiceId: inv.id,
+          invoiceNumber: inv.invoice_number,
+          customerId: inv.customer_id,
+          customerName: inv.customer_name || custInfo?.customer_name || 'Customer',
+          amount: inv.outstanding_balance.toFixed(2),
+          dueDate: inv.due_date,
+          daysOverdue,
+          level,
+          customerTypicalDelayDays: custInfo?.avg_delay_days ? Math.round(custInfo.avg_delay_days) : null,
+          ruleHits
+        };
+      });
+
+      setRisks(riskItems);
+      setError(null);
+    } catch (err: any) {
+      console.error('Failed to load risk analysis:', err);
+      setError(err.message || 'Failed to load receivable risk analysis from backend');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    async function loadData() {
-      setLoading(true);
-      try {
-        const data = await mockApi.getReceivableRisk();
-        setRisks(data);
-      } catch (err) {
-        console.error('Failed to load risk analysis:', err);
-      } finally {
-        setLoading(false);
-      }
-    }
     loadData();
   }, []);
 
@@ -30,6 +95,22 @@ export const RiskPage: React.FC = () => {
       <div className="space-y-6 animate-pulse max-w-7xl mx-auto p-4">
         <div className="h-8 bg-rule/40 rounded w-1/3"></div>
         <div className="h-64 bg-surface border border-rule rounded"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-8 bg-surface border border-rule rounded text-center space-y-3">
+        <AlertCircle className="w-8 h-8 text-shortfall mx-auto" />
+        <h3 className="text-base font-semibold text-ink">Unable to load risk radar</h3>
+        <p className="text-xs text-ink-muted">{error}</p>
+        <button
+          onClick={loadData}
+          className="text-xs px-3 py-1.5 bg-cash text-surface font-semibold rounded"
+        >
+          Retry Connection
+        </button>
       </div>
     );
   }
@@ -48,6 +129,78 @@ export const RiskPage: React.FC = () => {
     .reduce((acc, r) => acc + parseFloat(r.amount), 0);
   const highRiskCount = risks.filter(r => r.level === 'high').length;
 
+  const exportItemsToCsv = (items: ReceivableRisk[], label = 'Risk_Radar') => {
+    const headers = [
+      'Invoice Number',
+      'Customer Name',
+      'Customer ID',
+      'Outstanding Balance (INR)',
+      'Due Date',
+      'Days Overdue',
+      'Aging Status',
+      'Customer Avg Delay (Days)',
+      'Risk Rating',
+      'Primary Rule ID',
+      'Rule Explanation'
+    ];
+
+    const rows = items.map(r => [
+      `"${(r.invoiceNumber || '').replace(/"/g, '""')}"`,
+      `"${(r.customerName || '').replace(/"/g, '""')}"`,
+      `"${(r.customerId || '').replace(/"/g, '""')}"`,
+      `"${parseFloat(r.amount).toFixed(2)}"`,
+      `"${r.dueDate}"`,
+      r.daysOverdue,
+      `"${r.daysOverdue > 0 ? `${r.daysOverdue} days overdue` : 'Current'}"`,
+      `"${r.customerTypicalDelayDays !== null && r.customerTypicalDelayDays !== undefined ? `${r.customerTypicalDelayDays}d` : '0d (On-time)'}"`,
+      `"${r.level.toUpperCase()}"`,
+      `"${(r.ruleHits[0]?.ruleId || 'RULE-STD').replace(/"/g, '""')}"`,
+      `"${(r.ruleHits[0]?.description || '').replace(/"/g, '""')}"`
+    ]);
+
+    const csvContent = [
+      `# FlowCred Receivable Risk Radar Export`,
+      `# Generated: ${new Date().toISOString()}`,
+      `# Total Invoices: ${items.length}`,
+      `# Total Outstanding Amount: INR ${items.reduce((s, i) => s + parseFloat(i.amount), 0).toFixed(2)}`,
+      '',
+      headers.join(','),
+      ...rows.map(r => r.join(','))
+    ].join('\r\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `flowcred_${label.toLowerCase()}_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadFullReport = async () => {
+    setIsExporting(true);
+    try {
+      await apiClient.risk.downloadExport();
+      setDownloadSuccess('Risk Radar report downloaded');
+      setTimeout(() => setDownloadSuccess(null), 3500);
+    } catch (err) {
+      console.warn('Server export failed, falling back to local CSV generation:', err);
+      exportItemsToCsv(risks, 'receivable_risk_radar');
+      setDownloadSuccess('Risk Radar exported (CSV)');
+      setTimeout(() => setDownloadSuccess(null), 3500);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleDownloadFilteredReport = () => {
+    exportItemsToCsv(filteredRisks, `filtered_risk_radar_${filterLevel}`);
+    setDownloadSuccess(`Exported ${filteredRisks.length} filtered items`);
+    setTimeout(() => setDownloadSuccess(null), 3500);
+  };
+
   return (
     <div className="space-y-6 pb-12">
       {/* Header */}
@@ -60,6 +213,42 @@ export const RiskPage: React.FC = () => {
           <p className="text-xs text-ink-muted">
             Customer payment discipline scoring, overdue severity, and concentration tracking
           </p>
+        </div>
+        <div className="flex items-center flex-wrap gap-2 self-start sm:self-auto">
+          {downloadSuccess && (
+            <span className="text-[11px] font-medium text-cash bg-cash/10 border border-cash/20 px-2.5 py-1 rounded inline-flex items-center gap-1 transition-all">
+              <Check className="w-3 h-3" /> {downloadSuccess}
+            </span>
+          )}
+
+          <button
+            onClick={handleDownloadFullReport}
+            disabled={isExporting || risks.length === 0}
+            className="text-xs px-3 py-1.5 bg-cash text-surface font-semibold rounded hover:bg-cash/90 transition-colors flex items-center gap-1.5 shadow-xs disabled:opacity-50 cursor-pointer"
+            title="Download complete Receivable Risk Radar CSV report"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>{isExporting ? 'Downloading...' : 'Download CSV'}</span>
+          </button>
+
+          {(filterLevel !== 'all' || searchQuery.trim() !== '') && filteredRisks.length > 0 && (
+            <button
+              onClick={handleDownloadFilteredReport}
+              className="text-xs px-3 py-1.5 bg-paper border border-rule rounded text-ink hover:bg-paper/80 flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Download currently filtered view as CSV"
+            >
+              <Download className="w-3.5 h-3.5 text-ink-muted" />
+              <span>Export Filtered ({filteredRisks.length})</span>
+            </button>
+          )}
+
+          <button
+            onClick={loadData}
+            className="text-xs px-3 py-1.5 bg-paper border border-rule rounded text-ink hover:bg-paper/80 flex items-center gap-1.5 transition-colors cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Refresh Analysis</span>
+          </button>
         </div>
       </div>
 
@@ -136,85 +325,75 @@ export const RiskPage: React.FC = () => {
 
       {/* Risk Table */}
       <div className="bg-surface rounded-lg border border-rule overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs text-left">
-            <thead className="bg-paper text-ink-muted font-semibold border-b border-rule">
-              <tr>
-                <th className="py-3 px-4">Customer & Invoice</th>
-                <th className="py-3 px-4">Amount (₹)</th>
-                <th className="py-3 px-4">Due Date</th>
-                <th className="py-3 px-4">Days Overdue</th>
-                <th className="py-3 px-4">Historical Delay</th>
-                <th className="py-3 px-4">Risk Rating</th>
-                <th className="py-3 px-4">Deterministic Rule Trigger</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-rule font-mono">
-              {filteredRisks.map(r => {
-                const isOverdue = r.daysOverdue > 0;
-                return (
-                  <tr key={r.invoiceId} className="hover:bg-paper/60 transition-colors">
-                    <td className="py-3 px-4 font-sans">
-                      <span className="font-bold text-ink block">{r.customerName}</span>
-                      <span className="text-[11px] text-ink-muted font-mono">{r.invoiceNumber}</span>
-                    </td>
-                    <td className="py-3 px-4 font-bold text-ink">
-                      {formatIndianCurrency(r.amount)}
-                    </td>
-                    <td className="py-3 px-4 text-ink-muted font-sans">
-                      {formatDateIST(r.dueDate)}
-                    </td>
+        {risks.length === 0 ? (
+          <div className="p-8 text-center text-xs text-ink-muted">
+            <p className="font-semibold text-ink">No open receivables found</p>
+            <p>Upload invoices via Data Import to populate the receivable risk radar.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-paper text-ink-muted font-semibold border-b border-rule">
+                <tr>
+                  <th className="py-3 px-4">Customer & Invoice</th>
+                  <th className="py-3 px-4">Amount (₹)</th>
+                  <th className="py-3 px-4">Due Date</th>
+                  <th className="py-3 px-4">Days Overdue</th>
+                  <th className="py-3 px-4">Historical Delay</th>
+                  <th className="py-3 px-4">Risk Rating</th>
+                  <th className="py-3 px-4">Deterministic Rule Trigger</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-rule font-sans">
+                {filteredRisks.map(r => (
+                  <tr key={r.invoiceId} className="hover:bg-paper/50 transition-colors">
                     <td className="py-3 px-4">
-                      {isOverdue ? (
-                        <span className="font-bold text-shortfall">
-                          {r.daysOverdue} Days Late
-                        </span>
+                      <span className="font-bold text-ink block">{r.customerName}</span>
+                      <span className="text-[11px] font-mono text-ink-muted">{r.invoiceNumber}</span>
+                    </td>
+                    <td className="py-3 px-4 font-mono font-semibold text-ink">
+                      {formatIndianCurrency(parseFloat(r.amount))}
+                    </td>
+                    <td className="py-3 px-4 font-mono text-ink-muted">{formatDateIST(r.dueDate)}</td>
+                    <td className="py-3 px-4 font-mono">
+                      {r.daysOverdue > 0 ? (
+                        <span className="text-shortfall font-bold">+{r.daysOverdue} days</span>
                       ) : (
-                        <span className="text-cash font-sans">On Time</span>
+                        <span className="text-cash">Current</span>
                       )}
                     </td>
-                    <td className="py-3 px-4 font-sans text-ink-muted">
-                      {r.customerTypicalDelayDays ? `Avg +${r.customerTypicalDelayDays} days` : 'No delay history'}
+                    <td className="py-3 px-4 font-mono text-ink-muted">
+                      {r.customerTypicalDelayDays ? `+${r.customerTypicalDelayDays}d avg` : 'On-time payer'}
                     </td>
-                    <td className="py-3 px-4 font-sans">
+                    <td className="py-3 px-4">
                       {r.level === 'high' && (
-                        <span className="px-2 py-0.5 rounded bg-shortfall/10 text-shortfall font-bold text-[11px] inline-flex items-center gap-1">
-                          <AlertTriangle className="w-3 h-3" /> High Risk
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-shortfall bg-shortfall/10 px-2 py-0.5 rounded">
+                          <AlertTriangle className="w-3 h-3" /> HIGH
                         </span>
                       )}
                       {r.level === 'medium' && (
-                        <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 font-bold text-[11px] inline-flex items-center gap-1">
-                          Medium Risk
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded">
+                          <AlertTriangle className="w-3 h-3" /> MEDIUM
                         </span>
                       )}
                       {r.level === 'low' && (
-                        <span className="px-2 py-0.5 rounded bg-cash/10 text-cash font-bold text-[11px] inline-flex items-center gap-1">
-                          <CheckCircle className="w-3 h-3" /> Prompt Payer
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-cash bg-cash/10 px-2 py-0.5 rounded">
+                          <CheckCircle className="w-3 h-3" /> SAFE
                         </span>
                       )}
                     </td>
-                    <td className="py-3 px-4 font-sans text-[11px] text-ink-muted max-w-xs">
-                      {r.ruleHits.length > 0 ? (
-                        <ul className="list-disc list-inside space-y-0.5">
-                          {r.ruleHits.map((rh, idx) => (
-                            <li key={idx}>
-                              <span className="font-mono text-[10px] font-semibold text-ink">
-                                {rh.ruleId}:
-                              </span>{' '}
-                              {rh.description}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <span className="italic text-ink-muted">No penalty triggers</span>
-                      )}
+                    <td className="py-3 px-4">
+                      <span className="text-[11px] text-ink-muted font-mono block">
+                        {r.ruleHits[0]?.ruleId || 'RULE-STD'}
+                      </span>
+                      <span className="text-[11px] text-ink block">{r.ruleHits[0]?.description}</span>
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

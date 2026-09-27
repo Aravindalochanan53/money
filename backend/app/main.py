@@ -9,8 +9,11 @@ from app.database import engine, Base
 import app.models  # Ensure all models are imported before create_all
 from app.api.v1 import api_router
 
-# Create database tables
-Base.metadata.create_all(bind=engine)
+# Production schema changes are managed strictly via Alembic migrations.
+# In local development test mode with SQLite, initialize tables only if running against local dev sqlite.
+if settings.DATABASE_URL.startswith("sqlite") and settings.ENVIRONMENT.lower() in ("development", "test"):
+    Base.metadata.create_all(bind=engine)
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

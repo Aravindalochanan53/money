@@ -10,7 +10,7 @@ class PayableBill(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     business_id = Column(String(36), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False)
-    supplier_id = Column(String(36), ForeignKey("suppliers.id", ondelete="RESTRICT"), nullable=False)
+    supplier_id = Column(String(36), ForeignKey("suppliers.id", ondelete="NO ACTION"), nullable=False)
     bill_number = Column(String(100), nullable=False)
     bill_date = Column(Date, nullable=False)
     due_date = Column(Date, nullable=False)
@@ -35,3 +35,5 @@ class PayableBill(Base):
 
     business = relationship("Business", back_populates="payables")
     supplier = relationship("Supplier", back_populates="bills")
+    payments = relationship("PaymentRecord", back_populates="bill")
+
